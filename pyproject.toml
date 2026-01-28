@@ -1,0 +1,52 @@
+[project]
+name = "ibkr-tws-mcp"
+version = "0.1.0"
+description = "MCP server for interacting with Interactive Brokers TWS API"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Alessandro Anghelone" }]
+dependencies = [
+    "fastmcp>=2.0.0",
+    "ibapi>=9.81.1",
+    "uvicorn>=0.27.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+ibkr-tws-mcp = "ibkr_tws_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+# ibapi EWrapper callbacks must match exact signatures from parent class
+"src/ibkr_tws_mcp/tws_client.py" = ["N802", "N803"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["ibapi", "ibapi.*"]
+ignore_missing_imports = true
+ignore_errors = true
