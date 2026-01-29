@@ -25,10 +25,11 @@ def get_tools() -> IBKRTools:
     global _tools
     if _tools is None:
         # Lazy initialization with defaults from environment variables
-        host = os.getenv("TWS_HOST", "127.0.0.1")
-        port = int(os.getenv("TWS_PORT", "7496"))
-        client_id = int(os.getenv("TWS_CLIENT_ID", "0"))
-        timeout = int(os.getenv("TWS_TIMEOUT", "30"))
+        # Use 'or' to handle empty strings as well as None/unset
+        host = os.getenv("TWS_HOST") or "127.0.0.1"
+        port = int(os.getenv("TWS_PORT") or "7496")
+        client_id = int(os.getenv("TWS_CLIENT_ID") or "0")
+        timeout = int(os.getenv("TWS_TIMEOUT") or "30")
 
         client = TWSClientWrapper(host=host, port=port, client_id=client_id, timeout=timeout)
         _tools = IBKRTools(client)
@@ -565,45 +566,46 @@ def parse_args() -> argparse.Namespace:
         description="IBKR TWS MCP Server - MCP server for Interactive Brokers TWS API"
     )
 
+    # Use 'or' to handle empty strings as well as None/unset
     parser.add_argument(
         "--tws-host",
         type=str,
-        default=os.getenv("TWS_HOST", "127.0.0.1"),
+        default=os.getenv("TWS_HOST") or "127.0.0.1",
         help="TWS server host (env: TWS_HOST, default: 127.0.0.1)",
     )
 
     parser.add_argument(
         "--tws-port",
         type=int,
-        default=int(os.getenv("TWS_PORT", "7496")),
+        default=int(os.getenv("TWS_PORT") or "7496"),
         help="TWS server port (env: TWS_PORT, default: 7496 for live, 7497 for paper)",
     )
 
     parser.add_argument(
         "--tws-client-id",
         type=int,
-        default=int(os.getenv("TWS_CLIENT_ID", "0")),
+        default=int(os.getenv("TWS_CLIENT_ID") or "0"),
         help="TWS client ID (env: TWS_CLIENT_ID, default: 0)",
     )
 
     parser.add_argument(
         "--timeout",
         type=int,
-        default=int(os.getenv("TWS_TIMEOUT", "30")),
+        default=int(os.getenv("TWS_TIMEOUT") or "30"),
         help="Request timeout in seconds (env: TWS_TIMEOUT, default: 30)",
     )
 
     parser.add_argument(
         "--http-port",
         type=int,
-        default=int(os.getenv("MCP_HTTP_PORT", "8080")),
+        default=int(os.getenv("MCP_HTTP_PORT") or "8080"),
         help="HTTP server port (env: MCP_HTTP_PORT, default: 8080)",
     )
 
     parser.add_argument(
         "--http-host",
         type=str,
-        default=os.getenv("MCP_HOST", "0.0.0.0"),
+        default=os.getenv("MCP_HOST") or "0.0.0.0",
         help="HTTP server host (env: MCP_HOST, default: 0.0.0.0)",
     )
 

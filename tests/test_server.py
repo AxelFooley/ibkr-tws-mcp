@@ -53,6 +53,33 @@ class TestServerInitialization:
                 timeout=30,
             )
 
+    def test_get_tools_handles_empty_env_vars(self) -> None:
+        """Test that empty environment variables fall back to defaults."""
+        # Reset global tools
+        server._tools = None
+
+        with patch("ibkr_tws_mcp.server.TWSClientWrapper") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+
+            # Empty strings should be treated like unset and use defaults
+            env_with_empty = {
+                "TWS_HOST": "",
+                "TWS_PORT": "",
+                "TWS_CLIENT_ID": "",
+                "TWS_TIMEOUT": "",
+            }
+            with patch.dict("os.environ", env_with_empty, clear=True):
+                tools = server.get_tools()
+
+            assert tools is not None
+            mock_client_class.assert_called_once_with(
+                host="127.0.0.1",
+                port=7496,
+                client_id=0,
+                timeout=30,
+            )
+
     def test_get_tools_after_init(self) -> None:
         """Test getting tools after initialization."""
         with patch("ibkr_tws_mcp.server.TWSClientWrapper"):
@@ -104,6 +131,28 @@ class TestArgumentParsing:
                 assert args.timeout == 60
                 assert args.http_port == 9090
                 assert args.http_host == "localhost"
+
+    def test_parse_args_handles_empty_env_vars(self) -> None:
+        """Test that empty environment variables fall back to defaults."""
+        env_with_empty = {
+            "TWS_HOST": "",
+            "TWS_PORT": "",
+            "TWS_CLIENT_ID": "",
+            "TWS_TIMEOUT": "",
+            "MCP_HTTP_PORT": "",
+            "MCP_HOST": "",
+        }
+
+        with patch("sys.argv", ["server"]):
+            with patch.dict("os.environ", env_with_empty, clear=True):
+                args = server.parse_args()
+
+                assert args.tws_host == "127.0.0.1"
+                assert args.tws_port == 7496
+                assert args.tws_client_id == 0
+                assert args.timeout == 30
+                assert args.http_port == 8080
+                assert args.http_host == "0.0.0.0"
 
     def test_parse_args_from_cli(self) -> None:
         """Test argument parsing from command line."""
