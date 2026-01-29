@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
-from ibkr_tws_mcp.models import ContractSpec, OrderSpec, SecurityType
+from ibkr_tws_mcp.models import ContractSpec, OrderSpec
 from ibkr_tws_mcp.tools import IBKRTools
 
 

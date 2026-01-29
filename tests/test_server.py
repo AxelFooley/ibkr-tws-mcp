@@ -4,9 +4,47 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from ibkr_tws_mcp import server
+
+
+class TestLoggingSetup:
+    """Tests for logging configuration."""
+
+    def test_setup_logging_debug_mode_true(self) -> None:
+        """Test setup_logging returns True when DEBUG=true."""
+        with patch.dict("os.environ", {"DEBUG": "true"}, clear=True):
+            result = server.setup_logging()
+            assert result is True
+
+    def test_setup_logging_debug_mode_1(self) -> None:
+        """Test setup_logging returns True when DEBUG=1."""
+        with patch.dict("os.environ", {"DEBUG": "1"}, clear=True):
+            result = server.setup_logging()
+            assert result is True
+
+    def test_setup_logging_debug_mode_yes(self) -> None:
+        """Test setup_logging returns True when DEBUG=yes."""
+        with patch.dict("os.environ", {"DEBUG": "yes"}, clear=True):
+            result = server.setup_logging()
+            assert result is True
+
+    def test_setup_logging_debug_mode_false(self) -> None:
+        """Test setup_logging returns False when DEBUG=false."""
+        with patch.dict("os.environ", {"DEBUG": "false"}, clear=True):
+            result = server.setup_logging()
+            assert result is False
+
+    def test_setup_logging_debug_mode_not_set(self) -> None:
+        """Test setup_logging returns False when DEBUG is not set."""
+        with patch.dict("os.environ", {}, clear=True):
+            result = server.setup_logging()
+            assert result is False
+
+    def test_setup_logging_debug_mode_empty(self) -> None:
+        """Test setup_logging returns False when DEBUG is empty."""
+        with patch.dict("os.environ", {"DEBUG": ""}, clear=True):
+            result = server.setup_logging()
+            assert result is False
 
 
 class TestServerInitialization:

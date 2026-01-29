@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,8 +12,6 @@ from ibkr_tws_mcp.models import (
     BarData,
     ContractDetails,
     ContractSpec,
-    ExecutionInfo,
-    OpenOrder,
     OrderSpec,
     OrderState,
     OrderStatus,

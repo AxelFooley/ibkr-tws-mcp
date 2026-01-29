@@ -10,4 +10,5 @@ services:
       - TWS_TIMEOUT=${TWS_TIMEOUT:-30}
       - MCP_HOST=0.0.0.0
       - MCP_HTTP_PORT=8080
+      - DEBUG=${DEBUG:-false}
     restart: unless-stopped

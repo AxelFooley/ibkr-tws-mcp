@@ -183,10 +183,18 @@ class TWSClientWrapper(EWrapper, EClient):
             TimeoutError: If connection times out waiting for nextValidId
         """
         if self._connected:
+            logger.debug("Already connected, skipping connection")
             return True
 
+        logger.info(
+            f"Attempting to connect to TWS at {self.host}:{self.port} "
+            f"with client_id={self.client_id}, timeout={self.timeout}s"
+        )
+
         try:
+            logger.debug(f"Calling EClient.connect({self.host}, {self.port}, {self.client_id})")
             self.connect(self.host, self.port, self.client_id)
+            logger.debug(f"EClient.connect() returned, isConnected()={self.isConnected()}")
 
             # Verify connection was successful
             if not self.isConnected():
@@ -196,10 +204,12 @@ class TWSClientWrapper(EWrapper, EClient):
                 )
 
             # Start message processing thread
+            logger.debug("Starting message processing thread")
             thread = threading.Thread(target=self.run, daemon=True)
             thread.start()
 
             # Wait for connection confirmation (nextValidId callback)
+            logger.debug(f"Waiting for nextValidId callback (timeout={self.timeout}s)")
             if not self._connection_event.wait(timeout=self.timeout):
                 raise TimeoutError(
                     f"Connection to TWS timed out after {self.timeout}s. "

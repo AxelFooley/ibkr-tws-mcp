@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from typing import Any
@@ -16,8 +17,29 @@ from .tws_client import TWSClientWrapper
 # Initialize FastMCP server
 mcp = FastMCP("ibkr-tws-mcp")
 
+# Module logger
+logger = logging.getLogger(__name__)
+
 # Global tools instance (will be initialized with CLI args)
 _tools: IBKRTools | None = None
+
+
+def setup_logging() -> bool:
+    """Configure logging based on DEBUG environment variable.
+
+    Returns:
+        True if debug mode is enabled
+    """
+    debug_mode = os.getenv("DEBUG", "").lower() in ("true", "1", "yes")
+    level = logging.DEBUG if debug_mode else logging.INFO
+
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        stream=sys.stderr,
+    )
+
+    return debug_mode
 
 
 def get_tools() -> IBKRTools:
@@ -30,6 +52,11 @@ def get_tools() -> IBKRTools:
         port = int(os.getenv("TWS_PORT") or "7496")
         client_id = int(os.getenv("TWS_CLIENT_ID") or "0")
         timeout = int(os.getenv("TWS_TIMEOUT") or "30")
+
+        logger.debug(
+            f"Lazy initializing tools with: host={host}, port={port}, "
+            f"client_id={client_id}, timeout={timeout}"
+        )
 
         client = TWSClientWrapper(host=host, port=port, client_id=client_id, timeout=timeout)
         _tools = IBKRTools(client)
@@ -46,6 +73,10 @@ def init_tools(host: str, port: int, client_id: int, timeout: int) -> None:
         timeout: Request timeout in seconds
     """
     global _tools
+    logger.debug(
+        f"Initializing tools with: host={host}, port={port}, "
+        f"client_id={client_id}, timeout={timeout}"
+    )
     client = TWSClientWrapper(host=host, port=port, client_id=client_id, timeout=timeout)
     _tools = IBKRTools(client)
 
@@ -614,7 +645,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     """Main entry point for the IBKR TWS MCP server."""
+    # Setup logging first
+    debug_mode = setup_logging()
+
     args = parse_args()
+
+    logger.info(
+        f"Configuration: TWS_HOST={args.tws_host}, TWS_PORT={args.tws_port}, "
+        f"TWS_CLIENT_ID={args.tws_client_id}, TWS_TIMEOUT={args.timeout}"
+    )
 
     # Initialize tools with configuration
     init_tools(
@@ -623,6 +662,16 @@ def main() -> None:
         client_id=args.tws_client_id,
         timeout=args.timeout,
     )
+
+    # Auto-connect in debug mode to verify configuration
+    if debug_mode:
+        logger.info("Debug mode enabled - attempting automatic TWS connection...")
+        try:
+            result = get_tools().connect()
+            logger.info(f"Auto-connect result: {result}")
+        except Exception as e:
+            logger.error(f"Auto-connect failed: {e}")
+            # Don't exit - let the server start anyway so tools can be used
 
     print(
         f"Starting IBKR TWS MCP Server...\n"
