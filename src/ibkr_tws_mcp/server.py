@@ -21,9 +21,17 @@ _tools: IBKRTools | None = None
 
 
 def get_tools() -> IBKRTools:
-    """Get the global IBKR tools instance."""
+    """Get the global IBKR tools instance, initializing if needed."""
+    global _tools
     if _tools is None:
-        raise RuntimeError("Tools not initialized. Call init_tools() first.")
+        # Lazy initialization with defaults from environment variables
+        host = os.getenv("TWS_HOST", "127.0.0.1")
+        port = int(os.getenv("TWS_PORT", "7496"))
+        client_id = int(os.getenv("TWS_CLIENT_ID", "0"))
+        timeout = int(os.getenv("TWS_TIMEOUT", "30"))
+
+        client = TWSClientWrapper(host=host, port=port, client_id=client_id, timeout=timeout)
+        _tools = IBKRTools(client)
     return _tools
 
 

@@ -32,13 +32,26 @@ class TestServerInitialization:
                 timeout=30,
             )
 
-    def test_get_tools_not_initialized(self) -> None:
-        """Test getting tools when not initialized raises error."""
+    def test_get_tools_lazy_initialization(self) -> None:
+        """Test lazy initialization of tools when not explicitly initialized."""
         # Reset global tools
         server._tools = None
 
-        with pytest.raises(RuntimeError, match="Tools not initialized"):
-            server.get_tools()
+        with patch("ibkr_tws_mcp.server.TWSClientWrapper") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+
+            # get_tools should lazily initialize with defaults
+            with patch.dict("os.environ", {}, clear=True):
+                tools = server.get_tools()
+
+            assert tools is not None
+            mock_client_class.assert_called_once_with(
+                host="127.0.0.1",
+                port=7496,
+                client_id=0,
+                timeout=30,
+            )
 
     def test_get_tools_after_init(self) -> None:
         """Test getting tools after initialization."""
