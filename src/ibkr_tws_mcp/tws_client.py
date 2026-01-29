@@ -177,6 +177,10 @@ class TWSClientWrapper(EWrapper, EClient):
 
         Returns:
             True if connected successfully
+
+        Raises:
+            ConnectionError: If unable to connect to TWS
+            TimeoutError: If connection times out waiting for nextValidId
         """
         if self._connected:
             return True
@@ -184,13 +188,23 @@ class TWSClientWrapper(EWrapper, EClient):
         try:
             self.connect(self.host, self.port, self.client_id)
 
+            # Verify connection was successful
+            if not self.isConnected():
+                raise ConnectionError(
+                    f"Failed to connect to TWS at {self.host}:{self.port}. "
+                    "Ensure TWS/IB Gateway is running and API connections are enabled."
+                )
+
             # Start message processing thread
             thread = threading.Thread(target=self.run, daemon=True)
             thread.start()
 
-            # Wait for connection confirmation
+            # Wait for connection confirmation (nextValidId callback)
             if not self._connection_event.wait(timeout=self.timeout):
-                raise TimeoutError("Connection to TWS timed out")
+                raise TimeoutError(
+                    f"Connection to TWS timed out after {self.timeout}s. "
+                    "Connected but did not receive nextValidId."
+                )
 
             self._connected = True
             logger.info(
@@ -202,6 +216,10 @@ class TWSClientWrapper(EWrapper, EClient):
             logger.error(f"Failed to connect to TWS: {e}")
             self._connected = False
             raise
+
+    def connectAck(self) -> None:
+        """Callback when connection is acknowledged by TWS."""
+        logger.debug("Connection acknowledged by TWS")
 
     def disconnect_client(self) -> None:
         """Disconnect from TWS."""
