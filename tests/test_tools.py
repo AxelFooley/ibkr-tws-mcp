@@ -4,8 +4,66 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from ibkr_tws_mcp.models import ContractSpec, OrderSpec
 from ibkr_tws_mcp.tools import IBKRTools
+
+
+class TestEnsureConnected:
+    """Tests for ensure_connected auto-reconnect behavior."""
+
+    def test_ensure_connected_when_connected(
+        self, tools: IBKRTools, mock_tws_client: MagicMock
+    ) -> None:
+        """Test ensure_connected does nothing when already connected."""
+        mock_tws_client.is_connected.return_value = True
+
+        tools.ensure_connected()
+
+        # Should not attempt to connect when already connected
+        mock_tws_client.connect_and_run.assert_not_called()
+
+    def test_ensure_connected_when_disconnected(
+        self, tools: IBKRTools, mock_tws_client: MagicMock
+    ) -> None:
+        """Test ensure_connected reconnects when disconnected."""
+        mock_tws_client.is_connected.return_value = False
+
+        tools.ensure_connected()
+
+        # Should attempt to reconnect
+        mock_tws_client.connect_and_run.assert_called_once()
+
+    def test_ensure_connected_raises_on_failure(
+        self, tools: IBKRTools, mock_tws_client: MagicMock
+    ) -> None:
+        """Test ensure_connected raises ConnectionError on reconnect failure."""
+        mock_tws_client.is_connected.return_value = False
+        mock_tws_client.connect_and_run.side_effect = Exception("Connection refused")
+
+        with pytest.raises(ConnectionError) as exc_info:
+            tools.ensure_connected()
+
+        assert "Failed to connect to TWS" in str(exc_info.value)
+        assert "Connection refused" in str(exc_info.value)
+
+    def test_tool_auto_reconnects_on_call(
+        self, tools: IBKRTools, mock_tws_client: MagicMock
+    ) -> None:
+        """Test that tool methods auto-reconnect when connection is lost."""
+        # First call - connected
+        mock_tws_client.is_connected.return_value = True
+        tools.get_server_time()
+
+        # Connection lost
+        mock_tws_client.is_connected.return_value = False
+
+        # Second call - should trigger reconnect
+        tools.get_server_time()
+
+        # connect_and_run should be called once (for the reconnect)
+        mock_tws_client.connect_and_run.assert_called_once()
 
 
 class TestConnectionTools:

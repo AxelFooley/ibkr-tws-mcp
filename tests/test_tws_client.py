@@ -51,6 +51,44 @@ class TestTWSClientConnection:
 
         assert client._connected is False
 
+    def test_is_connected_resets_state_on_socket_disconnect(self) -> None:
+        """Test that is_connected resets state when socket is disconnected."""
+        client = TWSClientWrapper()
+
+        # Simulate having been connected
+        client._connected = True
+        client._connection_event.set()
+
+        # Mock isConnected to return False (socket disconnected)
+        original_is_connected = client.isConnected
+        client.isConnected = lambda: False  # type: ignore[method-assign]
+
+        # is_connected should detect the disconnect and reset state
+        result = client.is_connected()
+
+        assert result is False
+        assert client._connected is False
+        assert not client._connection_event.is_set()
+
+        # Restore original
+        client.isConnected = original_is_connected  # type: ignore[method-assign]
+
+    def test_is_connected_returns_true_when_both_flags_true(self) -> None:
+        """Test is_connected returns True when both internal and socket connected."""
+        client = TWSClientWrapper()
+
+        # Simulate connected state
+        client._connected = True
+        original_is_connected = client.isConnected
+        client.isConnected = lambda: True  # type: ignore[method-assign]
+
+        result = client.is_connected()
+
+        assert result is True
+
+        # Restore original
+        client.isConnected = original_is_connected  # type: ignore[method-assign]
+
 
 class TestTWSClientRequestId:
     """Tests for request ID generation."""

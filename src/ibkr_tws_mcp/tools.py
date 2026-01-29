@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from .models import (
@@ -11,6 +12,8 @@ from .models import (
 )
 from .tws_client import TWSClientWrapper
 from .utils import create_contract, create_order
+
+logger = logging.getLogger(__name__)
 
 
 class IBKRTools:
@@ -23,6 +26,20 @@ class IBKRTools:
             client: TWS client wrapper instance
         """
         self.client = client
+
+    def ensure_connected(self) -> None:
+        """Ensure connection to TWS, reconnecting if necessary.
+
+        Raises:
+            ConnectionError: If unable to connect/reconnect to TWS
+        """
+        if not self.client.is_connected():
+            logger.info("Connection lost or not established, attempting to connect...")
+            try:
+                self.client.connect_and_run()
+                logger.info("Connected to TWS successfully")
+            except Exception as e:
+                raise ConnectionError(f"Failed to connect to TWS: {e}") from e
 
     # ==================== Connection Tools ====================
 
@@ -77,6 +94,7 @@ class IBKRTools:
         Returns:
             Server time as Unix timestamp
         """
+        self.ensure_connected()
         try:
             time_val = self.client.get_server_time()
             return {"server_time": time_val}
@@ -91,6 +109,7 @@ class IBKRTools:
         Returns:
             List of account IDs
         """
+        self.ensure_connected()
         return self.client.get_managed_accounts()
 
     def get_account_summary(
@@ -105,6 +124,7 @@ class IBKRTools:
         Returns:
             Account summary data
         """
+        self.ensure_connected()
         try:
             summary = self.client.get_account_summary(account, tags)
             return summary.model_dump()
@@ -119,6 +139,7 @@ class IBKRTools:
         Returns:
             List of position information
         """
+        self.ensure_connected()
         try:
             positions = self.client.get_positions()
             return [pos.model_dump() for pos in positions]
@@ -133,6 +154,7 @@ class IBKRTools:
         Returns:
             List of open orders
         """
+        self.ensure_connected()
         try:
             orders = self.client.get_open_orders()
             return [order.model_dump() for order in orders]
@@ -145,6 +167,7 @@ class IBKRTools:
         Returns:
             List of open orders
         """
+        self.ensure_connected()
         try:
             orders = self.client.get_all_open_orders()
             return [order.model_dump() for order in orders]
@@ -161,6 +184,7 @@ class IBKRTools:
         Returns:
             Order placement result with order ID
         """
+        self.ensure_connected()
         try:
             ib_contract = create_contract(contract)
             ib_order = create_order(order)
@@ -188,6 +212,7 @@ class IBKRTools:
         Returns:
             Cancellation result
         """
+        self.ensure_connected()
         try:
             success = self.client.cancel_order_sync(order_id)
             return {
@@ -203,6 +228,7 @@ class IBKRTools:
         Returns:
             Cancellation result
         """
+        self.ensure_connected()
         try:
             success = self.client.cancel_all_orders()
             return {"status": "cancel_all_requested" if success else "failed"}
@@ -220,6 +246,7 @@ class IBKRTools:
         Returns:
             List of matching contract details
         """
+        self.ensure_connected()
         try:
             ib_contract = create_contract(contract)
             details = self.client.get_contract_details(ib_contract)
@@ -269,6 +296,7 @@ class IBKRTools:
         Returns:
             List of tick data
         """
+        self.ensure_connected()
         try:
             ib_contract = create_contract(contract)
             ticks = self.client.get_market_data_snapshot(ib_contract, generic_tick_list)
@@ -298,6 +326,7 @@ class IBKRTools:
         Returns:
             List of bar data
         """
+        self.ensure_connected()
         try:
             ib_contract = create_contract(contract)
             bars = self.client.get_historical_data(
@@ -336,6 +365,7 @@ class IBKRTools:
         Returns:
             List of execution reports
         """
+        self.ensure_connected()
         try:
             executions = self.client.get_executions(
                 client_id=client_id,
@@ -361,6 +391,7 @@ class IBKRTools:
         Returns:
             P&L data or None
         """
+        self.ensure_connected()
         try:
             pnl = self.client.get_pnl(account, model_code)
             return pnl.model_dump() if pnl else None
@@ -380,6 +411,7 @@ class IBKRTools:
         Returns:
             Position P&L data or None
         """
+        self.ensure_connected()
         try:
             pnl = self.client.get_pnl_single(account, con_id, model_code)
             return pnl.model_dump() if pnl else None
@@ -394,6 +426,7 @@ class IBKRTools:
         Returns:
             Scanner parameters XML string
         """
+        self.ensure_connected()
         try:
             return self.client.get_scanner_parameters()
         except Exception as e:
@@ -407,6 +440,7 @@ class IBKRTools:
         Returns:
             List of news provider information
         """
+        self.ensure_connected()
         try:
             providers = self.client.get_news_providers()
             # Convert to list of dicts if needed
@@ -436,6 +470,7 @@ class IBKRTools:
         Returns:
             List of news headlines
         """
+        self.ensure_connected()
         try:
             headlines = self.client.get_historical_news(
                 con_id=con_id,
@@ -458,6 +493,7 @@ class IBKRTools:
         Returns:
             Article content or None
         """
+        self.ensure_connected()
         try:
             return self.client.get_news_article(provider_code, article_id)
         except Exception as e:

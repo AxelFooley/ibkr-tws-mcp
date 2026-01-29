@@ -240,8 +240,17 @@ class TWSClientWrapper(EWrapper, EClient):
             logger.info("Disconnected from TWS")
 
     def is_connected(self) -> bool:
-        """Check if connected to TWS."""
-        return self._connected and self.isConnected()
+        """Check if connected to TWS.
+
+        Also resets internal state if the socket connection was lost unexpectedly.
+        """
+        socket_connected = self.isConnected()
+        if self._connected and not socket_connected:
+            # Connection was lost unexpectedly, reset state for reconnection
+            logger.warning("TWS connection lost unexpectedly, resetting state")
+            self._connected = False
+            self._connection_event.clear()
+        return self._connected and socket_connected
 
     # ==================== EWrapper Callbacks ====================
 
