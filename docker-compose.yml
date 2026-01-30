@@ -11,4 +11,5 @@ services:
       - MCP_HOST=0.0.0.0
       - MCP_HTTP_PORT=8080
       - DEBUG=${DEBUG:-false}
+      - ENABLE_ORDER_EXECUTION=${ENABLE_ORDER_EXECUTION:-false}
     restart: unless-stopped

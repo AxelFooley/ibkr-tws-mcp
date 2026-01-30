@@ -7,6 +7,49 @@ from unittest.mock import MagicMock, patch
 from ibkr_tws_mcp import server
 
 
+class TestOrderExecutionSecurity:
+    """Tests for order execution security feature."""
+
+    def test_order_execution_disabled_by_default(self) -> None:
+        """Test order execution is disabled when env var is not set."""
+        with patch.dict("os.environ", {}, clear=True):
+            assert server.is_order_execution_enabled() is False
+
+    def test_order_execution_disabled_when_false(self) -> None:
+        """Test order execution is disabled when set to false."""
+        with patch.dict("os.environ", {"ENABLE_ORDER_EXECUTION": "false"}, clear=True):
+            assert server.is_order_execution_enabled() is False
+
+    def test_order_execution_disabled_when_empty(self) -> None:
+        """Test order execution is disabled when set to empty string."""
+        with patch.dict("os.environ", {"ENABLE_ORDER_EXECUTION": ""}, clear=True):
+            assert server.is_order_execution_enabled() is False
+
+    def test_order_execution_enabled_when_true(self) -> None:
+        """Test order execution is enabled when set to true."""
+        with patch.dict("os.environ", {"ENABLE_ORDER_EXECUTION": "true"}, clear=True):
+            assert server.is_order_execution_enabled() is True
+
+    def test_order_execution_enabled_when_1(self) -> None:
+        """Test order execution is enabled when set to 1."""
+        with patch.dict("os.environ", {"ENABLE_ORDER_EXECUTION": "1"}, clear=True):
+            assert server.is_order_execution_enabled() is True
+
+    def test_order_execution_enabled_when_yes(self) -> None:
+        """Test order execution is enabled when set to yes."""
+        with patch.dict("os.environ", {"ENABLE_ORDER_EXECUTION": "yes"}, clear=True):
+            assert server.is_order_execution_enabled() is True
+
+    def test_order_execution_enabled_case_insensitive(self) -> None:
+        """Test order execution env var is case insensitive."""
+        with patch.dict("os.environ", {"ENABLE_ORDER_EXECUTION": "TRUE"}, clear=True):
+            assert server.is_order_execution_enabled() is True
+        with patch.dict("os.environ", {"ENABLE_ORDER_EXECUTION": "True"}, clear=True):
+            assert server.is_order_execution_enabled() is True
+        with patch.dict("os.environ", {"ENABLE_ORDER_EXECUTION": "YES"}, clear=True):
+            assert server.is_order_execution_enabled() is True
+
+
 class TestLoggingSetup:
     """Tests for logging configuration."""
 

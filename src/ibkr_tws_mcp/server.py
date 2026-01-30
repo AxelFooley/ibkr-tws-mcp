@@ -42,6 +42,18 @@ def setup_logging() -> bool:
     return debug_mode
 
 
+def is_order_execution_enabled() -> bool:
+    """Check if order execution tools are enabled.
+
+    Order execution tools (place_order, cancel_order, cancel_all_orders) are
+    disabled by default for security. Set ENABLE_ORDER_EXECUTION=true to enable.
+
+    Returns:
+        True if ENABLE_ORDER_EXECUTION env var is set to true/1/yes
+    """
+    return os.getenv("ENABLE_ORDER_EXECUTION", "").lower() in ("true", "1", "yes")
+
+
 def get_tools() -> IBKRTools:
     """Get the global IBKR tools instance, initializing if needed."""
     global _tools
@@ -210,87 +222,91 @@ def tws_get_all_open_orders() -> list[dict[str, Any]]:
     return get_tools().get_all_open_orders()
 
 
-@mcp.tool()
-def tws_place_order(
-    symbol: str,
-    action: str,
-    order_type: str,
-    quantity: float,
-    sec_type: str = "STK",
-    exchange: str = "SMART",
-    currency: str = "USD",
-    limit_price: float | None = None,
-    stop_price: float | None = None,
-    tif: str = "DAY",
-    account: str | None = None,
-    outside_rth: bool = False,
-) -> dict[str, Any]:
-    """Place a new order.
+# ==================== Order Execution Tools (Protected) ====================
+# These tools are only registered if ENABLE_ORDER_EXECUTION=true
+# This is a security feature to prevent LLMs from executing trades by default.
 
-    Args:
-        symbol: Symbol to trade (e.g., "AAPL", "MSFT")
-        action: Order action - "BUY" or "SELL"
-        order_type: Order type - "MKT" (market), "LMT" (limit), "STP" (stop),
-                   "STP LMT" (stop-limit), "TRAIL" (trailing stop)
-        quantity: Number of shares/contracts to trade
-        sec_type: Security type - "STK" (stock), "OPT" (option), "FUT" (future),
-                 "CASH" (forex), "CRYPTO" (cryptocurrency). Default: "STK"
-        exchange: Exchange to route to. Default: "SMART"
-        currency: Currency. Default: "USD"
-        limit_price: Limit price for limit orders
-        stop_price: Stop price for stop/stop-limit orders
-        tif: Time in force - "DAY", "GTC" (good til cancelled), "IOC" (immediate
-             or cancel), "FOK" (fill or kill). Default: "DAY"
-        account: Account to use (required for multi-account setups)
-        outside_rth: Allow trading outside regular trading hours. Default: False
+if is_order_execution_enabled():
 
-    Returns:
-        Order result with order ID and initial status
-    """
-    contract = ContractSpec(
-        symbol=symbol,
-        sec_type=SecurityType(sec_type),
-        exchange=exchange,
-        currency=currency,
-    )
+    @mcp.tool()
+    def tws_place_order(
+        symbol: str,
+        action: str,
+        order_type: str,
+        quantity: float,
+        sec_type: str = "STK",
+        exchange: str = "SMART",
+        currency: str = "USD",
+        limit_price: float | None = None,
+        stop_price: float | None = None,
+        tif: str = "DAY",
+        account: str | None = None,
+        outside_rth: bool = False,
+    ) -> dict[str, Any]:
+        """Place a new order.
 
-    order = OrderSpec(
-        action=OrderAction(action),
-        order_type=OrderType(order_type),
-        total_quantity=quantity,
-        limit_price=limit_price,
-        aux_price=stop_price,
-        tif=TimeInForce(tif),
-        account=account,
-        outside_rth=outside_rth,
-    )
+        Args:
+            symbol: Symbol to trade (e.g., "AAPL", "MSFT")
+            action: Order action - "BUY" or "SELL"
+            order_type: Order type - "MKT" (market), "LMT" (limit), "STP" (stop),
+                       "STP LMT" (stop-limit), "TRAIL" (trailing stop)
+            quantity: Number of shares/contracts to trade
+            sec_type: Security type - "STK" (stock), "OPT" (option), "FUT" (future),
+                     "CASH" (forex), "CRYPTO" (cryptocurrency). Default: "STK"
+            exchange: Exchange to route to. Default: "SMART"
+            currency: Currency. Default: "USD"
+            limit_price: Limit price for limit orders
+            stop_price: Stop price for stop/stop-limit orders
+            tif: Time in force - "DAY", "GTC" (good til cancelled), "IOC" (immediate
+                 or cancel), "FOK" (fill or kill). Default: "DAY"
+            account: Account to use (required for multi-account setups)
+            outside_rth: Allow trading outside regular trading hours. Default: False
 
-    return get_tools().place_order(contract, order)
+        Returns:
+            Order result with order ID and initial status
+        """
+        contract = ContractSpec(
+            symbol=symbol,
+            sec_type=SecurityType(sec_type),
+            exchange=exchange,
+            currency=currency,
+        )
 
+        order = OrderSpec(
+            action=OrderAction(action),
+            order_type=OrderType(order_type),
+            total_quantity=quantity,
+            limit_price=limit_price,
+            aux_price=stop_price,
+            tif=TimeInForce(tif),
+            account=account,
+            outside_rth=outside_rth,
+        )
 
-@mcp.tool()
-def tws_cancel_order(order_id: int) -> dict[str, Any]:
-    """Cancel an open order.
+        return get_tools().place_order(contract, order)
 
-    Args:
-        order_id: The order ID to cancel
+    @mcp.tool()
+    def tws_cancel_order(order_id: int) -> dict[str, Any]:
+        """Cancel an open order.
 
-    Returns:
-        Cancellation result with order ID and status
-    """
-    return get_tools().cancel_order(order_id)
+        Args:
+            order_id: The order ID to cancel
 
+        Returns:
+            Cancellation result with order ID and status
+        """
+        return get_tools().cancel_order(order_id)
 
-@mcp.tool()
-def tws_cancel_all_orders() -> dict[str, str]:
-    """Cancel all open orders.
+    @mcp.tool()
+    def tws_cancel_all_orders() -> dict[str, str]:
+        """Cancel all open orders.
 
-    Sends a global cancel request to cancel all open orders across all accounts.
+        Sends a global cancel request to cancel all open orders across all accounts.
 
-    Returns:
-        Cancellation request status
-    """
-    return get_tools().cancel_all_orders()
+        Returns:
+            Cancellation request status
+        """
+        return get_tools().cancel_all_orders()
 
 
 # ==================== Contract Tools ====================
@@ -654,6 +670,14 @@ def main() -> None:
         f"Configuration: TWS_HOST={args.tws_host}, TWS_PORT={args.tws_port}, "
         f"TWS_CLIENT_ID={args.tws_client_id}, TWS_TIMEOUT={args.timeout}"
     )
+
+    # Log security status
+    order_exec_enabled = is_order_execution_enabled()
+    if order_exec_enabled:
+        logger.warning("Order execution tools: ENABLED - LLM can place/cancel orders")
+    else:
+        logger.info("Order execution tools: DISABLED (default)")
+        logger.info("Set ENABLE_ORDER_EXECUTION=true to enable order placement/cancellation")
 
     # Initialize tools with configuration
     init_tools(
