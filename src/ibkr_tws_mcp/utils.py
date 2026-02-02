@@ -2,10 +2,311 @@
 
 from __future__ import annotations
 
+import re
+from datetime import datetime
+
 from ibapi.contract import Contract
 from ibapi.order import Order
 
 from .models import ContractSpec, OrderAction, OrderSpec, OrderType, SecurityType, TimeInForce
+
+# ==================== Input Validation ====================
+
+# Symbol pattern: 1-20 alphanumeric characters, dots, underscores, and slashes
+# Supports: AAPL, BRK.B, BTC/USD, EUR/USD, ES_202503
+SYMBOL_PATTERN = re.compile(r"^[A-Za-z0-9._/]{1,20}$")
+
+# Currency pattern: 3 uppercase letters (ISO 4217)
+CURRENCY_PATTERN = re.compile(r"^[A-Z]{3}$")
+
+# Exchange pattern: alphanumeric, can include dots (e.g., ISLAND, SMART, NYSE.ARCA)
+EXCHANGE_PATTERN = re.compile(r"^[A-Za-z0-9.]{1,20}$")
+
+# Date pattern for expiry: YYYYMMDD or YYYYMM
+DATE_PATTERN = re.compile(r"^(\d{6}|\d{8})$")
+
+# DateTime pattern: YYYYMMDD HH:MM:SS
+DATETIME_PATTERN = re.compile(r"^\d{8} \d{2}:\d{2}:\d{2}$")
+
+
+class ValidationError(ValueError):
+    """Exception raised for input validation errors."""
+
+    pass
+
+
+def validate_symbol(symbol: str) -> str:
+    """Validate and normalize a trading symbol.
+
+    Args:
+        symbol: Symbol to validate (e.g., "AAPL", "BRK.B", "EUR/USD")
+
+    Returns:
+        Uppercase normalized symbol
+
+    Raises:
+        ValidationError: If symbol format is invalid
+    """
+    if not symbol:
+        raise ValidationError("Symbol cannot be empty")
+    if not SYMBOL_PATTERN.match(symbol):
+        raise ValidationError(
+            f"Invalid symbol format: '{symbol}'. "
+            "Symbols must be 1-20 alphanumeric characters, dots, underscores, or slashes."
+        )
+    return symbol.upper()
+
+
+def validate_currency(currency: str) -> str:
+    """Validate a currency code.
+
+    Args:
+        currency: ISO 4217 currency code (e.g., "USD", "EUR")
+
+    Returns:
+        Uppercase currency code
+
+    Raises:
+        ValidationError: If currency format is invalid
+    """
+    if not currency:
+        raise ValidationError("Currency cannot be empty")
+    currency = currency.upper()
+    if not CURRENCY_PATTERN.match(currency):
+        raise ValidationError(
+            f"Invalid currency format: '{currency}'. "
+            "Currency must be a 3-letter ISO 4217 code (e.g., USD, EUR)."
+        )
+    return currency
+
+
+def validate_exchange(exchange: str) -> str:
+    """Validate an exchange code.
+
+    Args:
+        exchange: Exchange code (e.g., "SMART", "NYSE", "ISLAND")
+
+    Returns:
+        Uppercase exchange code
+
+    Raises:
+        ValidationError: If exchange format is invalid
+    """
+    if not exchange:
+        raise ValidationError("Exchange cannot be empty")
+    if not EXCHANGE_PATTERN.match(exchange):
+        raise ValidationError(
+            f"Invalid exchange format: '{exchange}'. Exchange must be 1-20 alphanumeric characters."
+        )
+    return exchange.upper()
+
+
+def validate_quantity(quantity: float, min_value: float = 0.0001) -> float:
+    """Validate a quantity value.
+
+    Args:
+        quantity: Quantity to validate
+        min_value: Minimum allowed value (default: 0.0001 for fractional shares)
+
+    Returns:
+        Validated quantity
+
+    Raises:
+        ValidationError: If quantity is invalid
+    """
+    if quantity < min_value:
+        raise ValidationError(f"Quantity must be at least {min_value}, got: {quantity}")
+    if quantity > 1_000_000_000:  # 1 billion max - reasonable upper bound
+        raise ValidationError(f"Quantity too large: {quantity}. Maximum is 1,000,000,000.")
+    return quantity
+
+
+def validate_price(price: float, allow_zero: bool = False) -> float:
+    """Validate a price value.
+
+    Args:
+        price: Price to validate
+        allow_zero: Whether to allow zero price (for market orders)
+
+    Returns:
+        Validated price
+
+    Raises:
+        ValidationError: If price is invalid
+    """
+    if price < 0:
+        raise ValidationError(f"Price cannot be negative: {price}")
+    if not allow_zero and price == 0:
+        raise ValidationError("Price cannot be zero")
+    if price > 1_000_000_000:  # 1 billion max
+        raise ValidationError(f"Price too large: {price}. Maximum is 1,000,000,000.")
+    return price
+
+
+def validate_expiry_date(expiry: str | None) -> str | None:
+    """Validate an expiry date string.
+
+    Args:
+        expiry: Expiry date in YYYYMMDD or YYYYMM format
+
+    Returns:
+        Validated expiry string or None
+
+    Raises:
+        ValidationError: If date format is invalid
+    """
+    if not expiry:
+        return None
+
+    if not DATE_PATTERN.match(expiry):
+        raise ValidationError(
+            f"Invalid expiry date format: '{expiry}'. Expected YYYYMMDD or YYYYMM format."
+        )
+
+    # Validate it's a real date
+    try:
+        if len(expiry) == 8:
+            datetime.strptime(expiry, "%Y%m%d")
+        else:
+            datetime.strptime(expiry + "01", "%Y%m%d")
+    except ValueError as e:
+        raise ValidationError(f"Invalid date: '{expiry}'. {e}") from e
+
+    return expiry
+
+
+def validate_datetime(dt_str: str | None) -> str | None:
+    """Validate a datetime string.
+
+    Args:
+        dt_str: Datetime in "YYYYMMDD HH:MM:SS" format or empty string
+
+    Returns:
+        Validated datetime string or None
+
+    Raises:
+        ValidationError: If datetime format is invalid
+    """
+    if not dt_str:
+        return dt_str  # Empty string is valid (means "now")
+
+    if not DATETIME_PATTERN.match(dt_str):
+        raise ValidationError(
+            f"Invalid datetime format: '{dt_str}'. Expected 'YYYYMMDD HH:MM:SS' format."
+        )
+
+    # Validate it's a real datetime
+    try:
+        datetime.strptime(dt_str, "%Y%m%d %H:%M:%S")
+    except ValueError as e:
+        raise ValidationError(f"Invalid datetime: '{dt_str}'. {e}") from e
+
+    return dt_str
+
+
+def validate_strike(strike: float | None) -> float | None:
+    """Validate an option strike price.
+
+    Args:
+        strike: Strike price to validate
+
+    Returns:
+        Validated strike price or None
+
+    Raises:
+        ValidationError: If strike is invalid
+    """
+    if strike is None:
+        return None
+    return validate_price(strike, allow_zero=False)
+
+
+def validate_option_right(right: str | None) -> str | None:
+    """Validate an option right (call/put).
+
+    Args:
+        right: Option right ("C" or "P")
+
+    Returns:
+        Validated uppercase right or None
+
+    Raises:
+        ValidationError: If right is invalid
+    """
+    if not right:
+        return None
+
+    right = right.upper()
+    if right not in ("C", "P", "CALL", "PUT"):
+        raise ValidationError(f"Invalid option right: '{right}'. Expected 'C' or 'P'.")
+
+    # Normalize to single letter
+    if right == "CALL":
+        return "C"
+    if right == "PUT":
+        return "P"
+    return right
+
+
+def validate_con_id(con_id: int | None) -> int | None:
+    """Validate a contract ID.
+
+    Args:
+        con_id: Contract ID to validate
+
+    Returns:
+        Validated contract ID or None
+
+    Raises:
+        ValidationError: If con_id is invalid
+    """
+    if con_id is None:
+        return None
+    if con_id <= 0:
+        raise ValidationError(f"Contract ID must be positive: {con_id}")
+    return con_id
+
+
+def validate_order_id(order_id: int) -> int:
+    """Validate an order ID.
+
+    Args:
+        order_id: Order ID to validate
+
+    Returns:
+        Validated order ID
+
+    Raises:
+        ValidationError: If order_id is invalid
+    """
+    if order_id <= 0:
+        raise ValidationError(f"Order ID must be positive: {order_id}")
+    return order_id
+
+
+def validate_total_results(total_results: int, max_results: int = 10000) -> int:
+    """Validate a total results count.
+
+    Args:
+        total_results: Number of results requested
+        max_results: Maximum allowed results
+
+    Returns:
+        Validated total results
+
+    Raises:
+        ValidationError: If total_results is invalid
+    """
+    if total_results <= 0:
+        raise ValidationError(f"Total results must be positive: {total_results}")
+    if total_results > max_results:
+        raise ValidationError(
+            f"Total results too large: {total_results}. Maximum is {max_results}."
+        )
+    return total_results
+
+
+# ==================== Contract and Order Creation ====================
 
 
 def create_contract(spec: ContractSpec) -> Contract:

@@ -71,6 +71,12 @@ class TWSClientWrapper(EWrapper, EClient):
         EWrapper.__init__(self)
         EClient.__init__(self, self)
 
+        # Validate and store connection parameters
+        if not host or not isinstance(host, str):
+            raise ValueError(f"Invalid host: {host!r}. Host must be a non-empty string.")
+        if not isinstance(port, int) or port <= 0:
+            raise ValueError(f"Invalid port: {port!r}. Port must be a positive integer.")
+
         self.host = host
         self.port = port
         self.client_id = client_id
@@ -81,25 +87,41 @@ class TWSClientWrapper(EWrapper, EClient):
         self._next_valid_id: int | None = None
         self._managed_accounts: list[str] = []
         self._connection_event = threading.Event()
+        self._connection_lock = threading.Lock()  # Lock for connection state changes
 
         # Request ID counter
         self._req_id_counter = 0
         self._req_id_lock = threading.Lock()
 
+        # Order ID lock for thread-safe order ID generation
+        self._order_id_lock = threading.Lock()
+
         # Response queues keyed by request ID
         self._response_queues: dict[int, Queue[Any]] = {}
         self._response_locks: dict[int, threading.Lock] = {}
 
-        # Special queues for different response types
-        self._positions_queue: Queue[PositionInfo | None] = Queue()
-        self._open_orders_queue: Queue[OpenOrder | None] = Queue()
-        self._executions_queue: Queue[ExecutionInfo | None] = Queue()
-        self._account_updates_queue: Queue[tuple[str, str, str, str] | None] = Queue()
-        self._commission_reports_queue: Queue[CommissionReport | None] = Queue()
+        # Maximum queue size to prevent unbounded memory growth
+        # 10000 items should be sufficient for any reasonable operation
+        self._max_queue_size = 10000
 
-        # Error tracking
+        # Special queues for different response types (bounded to prevent memory leaks)
+        self._positions_queue: Queue[PositionInfo | None] = Queue(maxsize=self._max_queue_size)
+        self._open_orders_queue: Queue[OpenOrder | None] = Queue(maxsize=self._max_queue_size)
+        self._executions_queue: Queue[ExecutionInfo | None] = Queue(maxsize=self._max_queue_size)
+        self._account_updates_queue: Queue[tuple[str, str, str, str] | None] = Queue(
+            maxsize=self._max_queue_size
+        )
+        self._commission_reports_queue: Queue[CommissionReport | None] = Queue(
+            maxsize=self._max_queue_size
+        )
+
+        # Error tracking (bounded)
         self._last_error: tuple[int, int, str] | None = None
-        self._error_queue: Queue[tuple[int, int, str]] = Queue()
+        self._error_queue: Queue[tuple[int, int, str]] = Queue(maxsize=1000)
+
+        # Thread management
+        self._api_thread: threading.Thread | None = None
+        self._shutdown_event = threading.Event()
 
     def _get_next_req_id(self) -> int:
         """Get next request ID."""
@@ -108,8 +130,8 @@ class TWSClientWrapper(EWrapper, EClient):
             return self._req_id_counter
 
     def _create_response_queue(self, req_id: int) -> Queue[Any]:
-        """Create a response queue for a request ID."""
-        queue: Queue[Any] = Queue()
+        """Create a bounded response queue for a request ID."""
+        queue: Queue[Any] = Queue(maxsize=self._max_queue_size)
         self._response_queues[req_id] = queue
         self._response_locks[req_id] = threading.Lock()
         return queue
@@ -118,6 +140,26 @@ class TWSClientWrapper(EWrapper, EClient):
         """Clean up response queue after request completes."""
         self._response_queues.pop(req_id, None)
         self._response_locks.pop(req_id, None)
+
+    def _safe_queue_put(self, queue: Queue[Any], item: Any) -> bool:
+        """Safely put an item on a queue without blocking.
+
+        If the queue is full, the item is dropped and a warning is logged.
+        This prevents callback methods from blocking indefinitely.
+
+        Args:
+            queue: Queue to put item on
+            item: Item to add to queue
+
+        Returns:
+            True if item was added, False if queue was full
+        """
+        try:
+            queue.put_nowait(item)
+            return True
+        except Exception:
+            logger.warning(f"Queue full, dropping item: {type(item).__name__}")
+            return False
 
     def _wait_for_response(
         self,
@@ -192,8 +234,33 @@ class TWSClientWrapper(EWrapper, EClient):
         )
 
         try:
-            logger.debug(f"Calling EClient.connect({self.host}, {self.port}, {self.client_id})")
-            self.connect(self.host, self.port, self.client_id)
+            # Validate parameters before connecting
+            if not self.host:
+                raise ConnectionError(f"Invalid host: {self.host!r}")
+            if not self.port:
+                raise ConnectionError(f"Invalid port: {self.port!r}")
+
+            logger.debug(
+                f"Calling EClient.connect(host={self.host!r}, port={self.port!r}, "
+                f"clientId={self.client_id!r})"
+            )
+
+            # Call connect with explicit type checking
+            try:
+                self.connect(str(self.host), int(self.port), int(self.client_id))
+            except TypeError as te:
+                # Catch the specific "str, bytes or bytearray expected" error
+                logger.error(
+                    f"TypeError during connect: {te}. "
+                    f"host={self.host!r} (type={type(self.host).__name__}), "
+                    f"port={self.port!r} (type={type(self.port).__name__}), "
+                    f"client_id={self.client_id!r} (type={type(self.client_id).__name__})"
+                )
+                raise ConnectionError(
+                    f"Invalid connection parameters: host={self.host!r}, "
+                    f"port={self.port!r}, client_id={self.client_id!r}. Error: {te}"
+                ) from te
+
             logger.debug(f"EClient.connect() returned, isConnected()={self.isConnected()}")
 
             # Verify connection was successful
@@ -205,8 +272,9 @@ class TWSClientWrapper(EWrapper, EClient):
 
             # Start message processing thread
             logger.debug("Starting message processing thread")
-            thread = threading.Thread(target=self.run, daemon=True)
-            thread.start()
+            self._shutdown_event.clear()
+            self._api_thread = threading.Thread(target=self._run_loop, daemon=True)
+            self._api_thread.start()
 
             # Wait for connection confirmation (nextValidId callback)
             logger.debug(f"Waiting for nextValidId callback (timeout={self.timeout}s)")
@@ -227,6 +295,16 @@ class TWSClientWrapper(EWrapper, EClient):
             self._connected = False
             raise
 
+    def _run_loop(self) -> None:
+        """Message processing loop that can be gracefully stopped."""
+        try:
+            self.run()
+        except Exception as e:
+            if not self._shutdown_event.is_set():
+                logger.error(f"Message processing error: {e}", exc_info=True)
+        finally:
+            logger.debug("Message processing thread exited")
+
     def connectAck(self) -> None:
         """Callback when connection is acknowledged by TWS."""
         logger.debug("Connection acknowledged by TWS")
@@ -234,23 +312,74 @@ class TWSClientWrapper(EWrapper, EClient):
     def disconnect_client(self) -> None:
         """Disconnect from TWS."""
         if self._connected:
+            # Signal shutdown
+            self._shutdown_event.set()
+
+            # Disconnect from TWS
             self.disconnect()
+
+            # Wait for thread to finish with timeout
+            if self._api_thread and self._api_thread.is_alive():
+                self._api_thread.join(timeout=5.0)
+                if self._api_thread.is_alive():
+                    logger.warning("API thread did not terminate within timeout")
+
             self._connected = False
             self._connection_event.clear()
+            self._api_thread = None
             logger.info("Disconnected from TWS")
+
+    def shutdown(self) -> None:
+        """Gracefully shutdown the client.
+
+        This method can be called to cleanly shut down the client,
+        ensuring all threads are properly terminated.
+        """
+        logger.info("Shutting down TWS client...")
+        self.disconnect_client()
+
+        # Clear all queues to release any blocked threads
+        queues_to_clear: list[Queue[Any]] = [
+            self._positions_queue,  # type: ignore[list-item]
+            self._open_orders_queue,  # type: ignore[list-item]
+            self._executions_queue,  # type: ignore[list-item]
+            self._account_updates_queue,  # type: ignore[list-item]
+            self._commission_reports_queue,  # type: ignore[list-item]
+            self._error_queue,  # type: ignore[list-item]
+        ]
+        for queue in queues_to_clear:
+            self._clear_queue(queue)
+
+        # Clear response queues
+        for queue in self._response_queues.values():
+            self._clear_queue(queue)
+        self._response_queues.clear()
+        self._response_locks.clear()
+
+        logger.info("TWS client shutdown complete")
+
+    def _clear_queue(self, queue: Queue[Any]) -> None:
+        """Clear all items from a queue."""
+        try:
+            while True:
+                queue.get_nowait()
+        except Empty:
+            pass
 
     def is_connected(self) -> bool:
         """Check if connected to TWS.
 
-        Also resets internal state if the socket connection was lost unexpectedly.
+        Thread-safe method that also resets internal state if the socket
+        connection was lost unexpectedly.
         """
-        socket_connected = self.isConnected()
-        if self._connected and not socket_connected:
-            # Connection was lost unexpectedly, reset state for reconnection
-            logger.warning("TWS connection lost unexpectedly, resetting state")
-            self._connected = False
-            self._connection_event.clear()
-        return self._connected and socket_connected
+        with self._connection_lock:
+            socket_connected = self.isConnected()
+            if self._connected and not socket_connected:
+                # Connection was lost unexpectedly, reset state for reconnection
+                logger.warning("TWS connection lost unexpectedly, resetting state")
+                self._connected = False
+                self._connection_event.clear()
+            return self._connected and socket_connected
 
     # ==================== EWrapper Callbacks ====================
 
@@ -274,7 +403,7 @@ class TWSClientWrapper(EWrapper, EClient):
     ) -> None:
         """Callback for error messages."""
         self._last_error = (reqId, errorCode, errorString)
-        self._error_queue.put((reqId, errorCode, errorString))
+        self._safe_queue_put(self._error_queue, (reqId, errorCode, errorString))
 
         # Log based on severity
         if errorCode in (2104, 2106, 2158):  # Info messages
@@ -309,7 +438,7 @@ class TWSClientWrapper(EWrapper, EClient):
 
     def updateAccountValue(self, key: str, val: str, currency: str, accountName: str) -> None:
         """Callback for account value updates."""
-        self._account_updates_queue.put((key, val, currency, accountName))
+        self._safe_queue_put(self._account_updates_queue, (key, val, currency, accountName))
 
     def updateAccountTime(self, timeStamp: str) -> None:
         """Callback for account update time."""
@@ -317,7 +446,7 @@ class TWSClientWrapper(EWrapper, EClient):
 
     def accountDownloadEnd(self, accountName: str) -> None:
         """Callback for end of account download."""
-        self._account_updates_queue.put(None)
+        self._safe_queue_put(self._account_updates_queue, None)
 
     # ==================== Position Callbacks ====================
 
@@ -333,11 +462,11 @@ class TWSClientWrapper(EWrapper, EClient):
             avg_cost=avgCost,
             con_id=contract.conId,
         )
-        self._positions_queue.put(pos_info)
+        self._safe_queue_put(self._positions_queue, pos_info)
 
     def positionEnd(self) -> None:
         """Callback for end of positions."""
-        self._positions_queue.put(None)
+        self._safe_queue_put(self._positions_queue, None)
 
     # ==================== Order Callbacks ====================
 
@@ -383,11 +512,11 @@ class TWSClientWrapper(EWrapper, EClient):
             order=order_spec,
             order_state=state,
         )
-        self._open_orders_queue.put(open_order)
+        self._safe_queue_put(self._open_orders_queue, open_order)
 
     def openOrderEnd(self) -> None:
         """Callback for end of open orders."""
-        self._open_orders_queue.put(None)
+        self._safe_queue_put(self._open_orders_queue, None)
 
     def orderStatus(
         self,
@@ -447,11 +576,11 @@ class TWSClientWrapper(EWrapper, EClient):
             last_liquidity=execution.lastLiquidity,
             time=execution.time,
         )
-        self._executions_queue.put(exec_info)
+        self._safe_queue_put(self._executions_queue, exec_info)
 
     def execDetailsEnd(self, reqId: int) -> None:
         """Callback for end of executions."""
-        self._executions_queue.put(None)
+        self._safe_queue_put(self._executions_queue, None)
 
     def commissionReport(self, commissionReport: IBCommissionReport) -> None:
         """Callback for commission report."""
@@ -465,7 +594,7 @@ class TWSClientWrapper(EWrapper, EClient):
             if commissionReport.yieldRedemptionDate
             else "",
         )
-        self._commission_reports_queue.put(report)
+        self._safe_queue_put(self._commission_reports_queue, report)
 
     # ==================== Contract Callbacks ====================
 
@@ -723,14 +852,20 @@ class TWSClientWrapper(EWrapper, EClient):
     def get_next_order_id(self) -> int:
         """Get next valid order ID.
 
+        Thread-safe method to get the next valid order ID.
+
         Returns:
             Next valid order ID
+
+        Raises:
+            RuntimeError: If not connected to TWS
         """
-        if self._next_valid_id is None:
-            raise RuntimeError("Not connected to TWS")
-        order_id = self._next_valid_id
-        self._next_valid_id += 1
-        return order_id
+        with self._order_id_lock:
+            if self._next_valid_id is None:
+                raise RuntimeError("Not connected to TWS")
+            order_id = self._next_valid_id
+            self._next_valid_id += 1
+            return order_id
 
     def get_account_summary(
         self, account: str = "All", tags: list[str] | None = None

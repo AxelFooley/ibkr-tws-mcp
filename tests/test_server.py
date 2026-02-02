@@ -189,7 +189,8 @@ class TestArgumentParsing:
                 assert args.tws_client_id == 0
                 assert args.timeout == 30
                 assert args.http_port == 8080
-                assert args.http_host == "0.0.0.0"
+                # Default is now 127.0.0.1 for security (localhost only)
+                assert args.http_host == "127.0.0.1"
 
     def test_parse_args_from_env(self) -> None:
         """Test argument parsing from environment variables."""
@@ -233,7 +234,8 @@ class TestArgumentParsing:
                 assert args.tws_client_id == 0
                 assert args.timeout == 30
                 assert args.http_port == 8080
-                assert args.http_host == "0.0.0.0"
+                # Default is now 127.0.0.1 for security (localhost only)
+                assert args.http_host == "127.0.0.1"
 
     def test_parse_args_from_cli(self) -> None:
         """Test argument parsing from command line."""

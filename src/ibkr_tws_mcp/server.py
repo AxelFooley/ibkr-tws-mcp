@@ -13,6 +13,19 @@ from fastmcp import FastMCP
 from .models import ContractSpec, OrderAction, OrderSpec, OrderType, SecurityType, TimeInForce
 from .tools import IBKRTools
 from .tws_client import TWSClientWrapper
+from .utils import (
+    validate_con_id,
+    validate_currency,
+    validate_datetime,
+    validate_exchange,
+    validate_expiry_date,
+    validate_order_id,
+    validate_price,
+    validate_quantity,
+    validate_strike,
+    validate_symbol,
+    validate_total_results,
+)
 
 # Initialize FastMCP server
 mcp = FastMCP("ibkr-tws-mcp")
@@ -60,13 +73,27 @@ def get_tools() -> IBKRTools:
     if _tools is None:
         # Lazy initialization with defaults from environment variables
         # Use 'or' to handle empty strings as well as None/unset
-        host = os.getenv("TWS_HOST") or "127.0.0.1"
-        port = int(os.getenv("TWS_PORT") or "7496")
-        client_id = int(os.getenv("TWS_CLIENT_ID") or "0")
-        timeout = int(os.getenv("TWS_TIMEOUT") or "30")
+        raw_host = os.getenv("TWS_HOST")
+        raw_port = os.getenv("TWS_PORT")
+        raw_client_id = os.getenv("TWS_CLIENT_ID")
+        raw_timeout = os.getenv("TWS_TIMEOUT")
 
         logger.debug(
-            f"Lazy initializing tools with: host={host}, port={port}, "
+            f"Raw env vars: TWS_HOST={raw_host!r}, TWS_PORT={raw_port!r}, "
+            f"TWS_CLIENT_ID={raw_client_id!r}, TWS_TIMEOUT={raw_timeout!r}"
+        )
+
+        host = raw_host or "127.0.0.1"
+        port = int(raw_port or "7496")
+        client_id = int(raw_client_id or "0")
+        timeout = int(raw_timeout or "30")
+
+        # Validate that host is a proper string
+        if not host or not isinstance(host, str):
+            raise ValueError(f"Invalid TWS_HOST: {host!r}. Must be a non-empty string.")
+
+        logger.debug(
+            f"Lazy initializing tools with: host={host!r}, port={port}, "
             f"client_id={client_id}, timeout={timeout}"
         )
 
@@ -264,7 +291,22 @@ if is_order_execution_enabled():
 
         Returns:
             Order result with order ID and initial status
+
+        Raises:
+            ValidationError: If input parameters are invalid
         """
+        # Validate inputs - critical for order placement
+        symbol = validate_symbol(symbol)
+        exchange = validate_exchange(exchange)
+        currency = validate_currency(currency)
+        quantity = validate_quantity(quantity)
+
+        # Validate prices based on order type
+        if limit_price is not None:
+            limit_price = validate_price(limit_price)
+        if stop_price is not None:
+            stop_price = validate_price(stop_price)
+
         contract = ContractSpec(
             symbol=symbol,
             sec_type=SecurityType(sec_type),
@@ -294,7 +336,13 @@ if is_order_execution_enabled():
 
         Returns:
             Cancellation result with order ID and status
+
+        Raises:
+            ValidationError: If order_id is invalid
         """
+        # Validate input
+        order_id = validate_order_id(order_id)
+
         return get_tools().cancel_order(order_id)
 
     @mcp.tool()
@@ -338,7 +386,17 @@ def tws_get_contract_details(
 
     Returns:
         List of matching contract details
+
+    Raises:
+        ValidationError: If input parameters are invalid
     """
+    # Validate inputs
+    symbol = validate_symbol(symbol)
+    exchange = validate_exchange(exchange)
+    currency = validate_currency(currency)
+    expiry = validate_expiry_date(expiry)
+    strike = validate_strike(strike)
+
     contract = ContractSpec(
         symbol=symbol,
         sec_type=SecurityType(sec_type),
@@ -371,7 +429,15 @@ def tws_search_contracts(
 
     Returns:
         List of matching contract details
+
+    Raises:
+        ValidationError: If input parameters are invalid
     """
+    # Validate inputs
+    symbol = validate_symbol(symbol)
+    exchange = validate_exchange(exchange)
+    currency = validate_currency(currency)
+
     return get_tools().search_contracts(symbol, sec_type, exchange, currency)
 
 
@@ -397,7 +463,15 @@ def tws_get_market_data(
 
     Returns:
         List of tick data with prices, sizes, and attributes
+
+    Raises:
+        ValidationError: If input parameters are invalid
     """
+    # Validate inputs
+    symbol = validate_symbol(symbol)
+    exchange = validate_exchange(exchange)
+    currency = validate_currency(currency)
+
     contract = ContractSpec(
         symbol=symbol,
         sec_type=SecurityType(sec_type),
@@ -441,7 +515,16 @@ def tws_get_historical_data(
 
     Returns:
         List of bar data with date, open, high, low, close, volume
+
+    Raises:
+        ValidationError: If input parameters are invalid
     """
+    # Validate inputs
+    symbol = validate_symbol(symbol)
+    exchange = validate_exchange(exchange)
+    currency = validate_currency(currency)
+    end_date_time = validate_datetime(end_date_time) or ""
+
     contract = ContractSpec(
         symbol=symbol,
         sec_type=SecurityType(sec_type),
@@ -521,7 +604,13 @@ def tws_get_position_pnl(account: str, con_id: int, model_code: str = "") -> dic
 
     Returns:
         Position P&L data with position size, daily/unrealized/realized P&L
+
+    Raises:
+        ValidationError: If input parameters are invalid
     """
+    # Validate inputs
+    con_id = validate_con_id(con_id) or 0
+
     return get_tools().get_position_pnl(account, con_id, model_code)
 
 
@@ -577,7 +666,16 @@ def tws_get_historical_news(
 
     Returns:
         List of news headlines with time, provider, article ID, and headline text
+
+    Raises:
+        ValidationError: If input parameters are invalid
     """
+    # Validate inputs
+    con_id = validate_con_id(con_id) or 0
+    start_date_time = validate_datetime(start_date_time) or ""
+    end_date_time = validate_datetime(end_date_time) or ""
+    total_results = validate_total_results(total_results)
+
     return get_tools().get_historical_news(
         con_id=con_id,
         provider_codes=provider_codes,
@@ -652,8 +750,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--http-host",
         type=str,
-        default=os.getenv("MCP_HOST") or "0.0.0.0",
-        help="HTTP server host (env: MCP_HOST, default: 0.0.0.0)",
+        default=os.getenv("MCP_HOST") or "127.0.0.1",
+        help="HTTP server host (env: MCP_HOST, default: 127.0.0.1)",
     )
 
     return parser.parse_args()
