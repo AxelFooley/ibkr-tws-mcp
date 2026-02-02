@@ -7,8 +7,8 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 
-# Install dependencies using uv
-RUN uv pip install --system --no-cache -e .
+# Install dependencies using uv (non-editable for multi-stage build compatibility)
+RUN uv pip install --system --no-cache .
 
 # Production stage
 FROM python:3.11-slim-bookworm

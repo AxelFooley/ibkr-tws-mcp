@@ -110,10 +110,20 @@ def init_tools(host: str, port: int, client_id: int, timeout: int) -> None:
         port: TWS server port
         client_id: Client ID
         timeout: Request timeout in seconds
+
+    Raises:
+        ValueError: If host or port are invalid
     """
     global _tools
-    logger.debug(
-        f"Initializing tools with: host={host}, port={port}, "
+
+    # Defensive validation - catch None/empty values early
+    if host is None or not host:
+        raise ValueError(f"TWS_HOST cannot be None or empty. Got: {host!r}")
+    if port is None or port <= 0:
+        raise ValueError(f"TWS_PORT must be a positive integer. Got: {port!r}")
+
+    logger.info(
+        f"Initializing tools with: host={host!r}, port={port!r}, "
         f"client_id={client_id}, timeout={timeout}"
     )
     client = TWSClientWrapper(host=host, port=port, client_id=client_id, timeout=timeout)
@@ -761,6 +771,14 @@ def main() -> None:
     """Main entry point for the IBKR TWS MCP server."""
     # Setup logging first
     debug_mode = setup_logging()
+
+    # Log raw environment variables for debugging
+    logger.info(
+        f"Environment: TWS_HOST={os.getenv('TWS_HOST')!r}, "
+        f"TWS_PORT={os.getenv('TWS_PORT')!r}, "
+        f"TWS_CLIENT_ID={os.getenv('TWS_CLIENT_ID')!r}, "
+        f"TWS_TIMEOUT={os.getenv('TWS_TIMEOUT')!r}"
+    )
 
     args = parse_args()
 
