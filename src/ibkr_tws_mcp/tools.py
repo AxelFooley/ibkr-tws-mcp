@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from .models import (
@@ -14,6 +15,10 @@ from .tws_client import TWSClientWrapper
 from .utils import create_contract, create_order
 
 logger = logging.getLogger(__name__)
+
+# Pattern to detect IBKR account IDs (e.g., U13774526, DU123456, F1234567)
+# Account IDs start with 1-2 uppercase letters followed by digits
+ACCOUNT_ID_PATTERN = re.compile(r"^[A-Z]{1,2}\d+$")
 
 
 class IBKRTools:
@@ -118,13 +123,25 @@ class IBKRTools:
         """Get account summary.
 
         Args:
-            account: Account ID or "All" for all accounts
+            account: Account group name or "All" for FA accounts.
+                     If an account ID is detected (e.g., U13774526), automatically
+                     redirects to get_account_updates which works for all account types.
             tags: List of tags to request (defaults to common tags)
 
         Returns:
             Account summary data
         """
         self.ensure_connected()
+
+        # Detect if 'account' looks like an account ID rather than a group name
+        # Account IDs are like U13774526, DU123456 - group names are "All" or custom
+        if account != "All" and ACCOUNT_ID_PATTERN.match(account):
+            logger.info(
+                f"Account '{account}' appears to be an account ID, "
+                "redirecting to get_account_updates"
+            )
+            return self.get_account_updates(account)
+
         try:
             summary = self.client.get_account_summary(account, tags)
             return summary.model_dump()
