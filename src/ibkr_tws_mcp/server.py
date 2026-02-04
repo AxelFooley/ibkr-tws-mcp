@@ -198,12 +198,16 @@ def tws_get_account_summary(
     account: str = "All",
     tags: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Get account summary information.
+    """Get account summary information (Financial Advisor accounts only).
+
+    NOTE: This tool is designed for Financial Advisor (FA) multi-account setups.
+    For single accounts or unified accounts, use tws_get_account_updates instead.
 
     Retrieves account values like net liquidation, buying power, margin, etc.
 
     Args:
-        account: Account ID or "All" for all accounts (default: "All")
+        account: Account group name or "All" for all accounts (default: "All").
+                 Must be a valid account group configured in TWS.
         tags: List of tags to request. If not specified, returns common tags:
               NetLiquidation, TotalCashValue, BuyingPower, EquityWithLoanValue,
               GrossPositionValue, InitMarginReq, MaintMarginReq, AvailableFunds, etc.
@@ -212,6 +216,30 @@ def tws_get_account_summary(
         Account summary with account ID and list of tag/value pairs
     """
     return get_tools().get_account_summary(account, tags)
+
+
+@mcp.tool()
+def tws_get_account_updates(account: str = "") -> dict[str, Any]:
+    """Get account updates for a single account.
+
+    This is the recommended method for getting account data. It works with all
+    account types including unified accounts and single accounts.
+
+    For Financial Advisor (FA) multi-account setups, you may also use
+    tws_get_account_summary.
+
+    Args:
+        account: Account ID. If empty, uses the first managed account.
+
+    Returns:
+        Account update data with values including:
+        - NetLiquidation: Total account value
+        - TotalCashValue: Cash balance
+        - BuyingPower: Available buying power
+        - GrossPositionValue: Total position value
+        - And many more account metrics
+    """
+    return get_tools().get_account_updates(account)
 
 
 # ==================== Position Tools ====================

@@ -206,6 +206,28 @@ class AccountSummary(BaseModel):
     items: list[AccountSummaryItem] = Field(default_factory=list, description="Summary items")
 
 
+class AccountValueItem(BaseModel):
+    """Single account value item from reqAccountUpdates."""
+
+    key: str = Field(..., description="Value key (e.g., NetLiquidation, TotalCashValue)")
+    value: str = Field(..., description="Value")
+    currency: str = Field(..., description="Currency of the value")
+
+
+class AccountUpdate(BaseModel):
+    """Account update information from reqAccountUpdates.
+
+    This is the preferred way to get account data for single accounts
+    or unified accounts. For Financial Advisor multi-account setups,
+    use AccountSummary instead.
+    """
+
+    account: str = Field(..., description="Account ID")
+    values: list[AccountValueItem] = Field(
+        default_factory=list, description="Account value items"
+    )
+
+
 class ExecutionInfo(BaseModel):
     """Execution report information."""
 

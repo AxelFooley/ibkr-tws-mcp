@@ -21,6 +21,8 @@ from ibapi.wrapper import EWrapper
 from .models import (
     AccountSummary,
     AccountSummaryItem,
+    AccountUpdate,
+    AccountValueItem,
     BarData,
     CommissionReport,
     ContractDetails,
@@ -972,6 +974,91 @@ class TWSClientWrapper(EWrapper, EClient):
         finally:
             self.cancelAccountSummary(req_id)
             self._cleanup_response_queue(req_id)
+
+    def get_account_updates(self, account: str = "") -> AccountUpdate:
+        """Get account updates for a single account.
+
+        This method uses reqAccountUpdates which works for all account types
+        including unified accounts and single accounts. This is the recommended
+        method for non-Financial Advisor setups.
+
+        For Financial Advisor (FA) multi-account setups, use get_account_summary()
+        instead.
+
+        Args:
+            account: Account ID. If empty, uses the first managed account.
+
+        Returns:
+            AccountUpdate with account values
+
+        Note:
+            Unlike reqAccountSummary, reqAccountUpdates works with unified
+            accounts and doesn't require account group configuration in TWS.
+        """
+        # If no account specified, use the first managed account
+        if not account:
+            if self._managed_accounts:
+                account = self._managed_accounts[0]
+            else:
+                raise RuntimeError(
+                    "No account specified and no managed accounts available. "
+                    "Connect to TWS first."
+                )
+
+        # Clear the account updates queue
+        while not self._account_updates_queue.empty():
+            try:
+                self._account_updates_queue.get_nowait()
+            except Empty:
+                break
+
+        # Request account updates - True means subscribe, account is the account ID
+        self.reqAccountUpdates(True, account)
+
+        try:
+            values: list[AccountValueItem] = []
+            deadline = time.time() + self.timeout
+
+            while True:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    logger.warning(
+                        f"Timeout waiting for account updates for {account}"
+                    )
+                    break
+
+                try:
+                    item = self._account_updates_queue.get(
+                        timeout=min(remaining, 1.0)
+                    )
+
+                    if item is None:
+                        # accountDownloadEnd received
+                        break
+
+                    # item is (key, value, currency, accountName)
+                    key, val, currency, acct_name = item
+                    values.append(
+                        AccountValueItem(key=key, value=val, currency=currency)
+                    )
+
+                except Empty:
+                    # Check for errors
+                    try:
+                        error = self._error_queue.get_nowait()
+                        if error[1] not in (2104, 2106, 2158):  # Info messages
+                            raise RuntimeError(
+                                f"TWS Error {error[1]}: {error[2]}"
+                            )
+                    except Empty:
+                        pass
+                    continue
+
+            return AccountUpdate(account=account, values=values)
+
+        finally:
+            # Cancel the subscription
+            self.reqAccountUpdates(False, account)
 
     def get_positions(self) -> list[PositionInfo]:
         """Get all positions.

@@ -131,6 +131,27 @@ class IBKRTools:
         except Exception as e:
             raise RuntimeError(f"Failed to get account summary: {e}") from e
 
+    def get_account_updates(self, account: str = "") -> dict[str, Any]:
+        """Get account updates for a single account.
+
+        This method uses reqAccountUpdates which works for all account types
+        including unified accounts and single accounts. Use this for non-FA setups.
+
+        For Financial Advisor (FA) multi-account setups, use get_account_summary().
+
+        Args:
+            account: Account ID. If empty, uses the first managed account.
+
+        Returns:
+            Account update data with values for the account
+        """
+        self.ensure_connected()
+        try:
+            update = self.client.get_account_updates(account)
+            return update.model_dump()
+        except Exception as e:
+            raise RuntimeError(f"Failed to get account updates: {e}") from e
+
     # ==================== Position Tools ====================
 
     def get_positions(self) -> list[dict[str, Any]]:
