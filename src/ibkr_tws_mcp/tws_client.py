@@ -72,13 +72,14 @@ class TWSClientWrapper(EWrapper, EClient):
         EClient.__init__(self, self)
 
         # Validate and store connection parameters
+        # Use private attributes to avoid shadowing EClient's host/port which are set to None
         if not host or not isinstance(host, str):
             raise ValueError(f"Invalid host: {host!r}. Host must be a non-empty string.")
         if not isinstance(port, int) or port <= 0:
             raise ValueError(f"Invalid port: {port!r}. Port must be a positive integer.")
 
-        self.host = host
-        self.port = port
+        self._tws_host = host
+        self._tws_port = port
         self.client_id = client_id
         self.timeout = timeout
 
@@ -122,6 +123,50 @@ class TWSClientWrapper(EWrapper, EClient):
         # Thread management
         self._api_thread: threading.Thread | None = None
         self._shutdown_event = threading.Event()
+
+    @property
+    def host(self) -> str | None:
+        """Get configured TWS host.
+
+        Returns the configured host if set, otherwise returns the EClient's
+        internal host attribute (which may be None before connect() is called).
+        """
+        if hasattr(self, "_tws_host"):
+            return self._tws_host
+        return None
+
+    @host.setter
+    def host(self, value: str | None) -> None:
+        """Set host - required for EClient compatibility.
+
+        EClient.reset() sets self.host = None. We need to allow this
+        but our _tws_host takes precedence when reading.
+        """
+        # Allow EClient to set its internal state, but don't overwrite our config
+        # The getter will return _tws_host if set
+        pass
+
+    @property
+    def port(self) -> int | None:
+        """Get configured TWS port.
+
+        Returns the configured port if set, otherwise returns the EClient's
+        internal port attribute (which may be None before connect() is called).
+        """
+        if hasattr(self, "_tws_port"):
+            return self._tws_port
+        return None
+
+    @port.setter
+    def port(self, value: int | None) -> None:
+        """Set port - required for EClient compatibility.
+
+        EClient.reset() sets self.port = None. We need to allow this
+        but our _tws_port takes precedence when reading.
+        """
+        # Allow EClient to set its internal state, but don't overwrite our config
+        # The getter will return _tws_port if set
+        pass
 
     def _get_next_req_id(self) -> int:
         """Get next request ID."""
