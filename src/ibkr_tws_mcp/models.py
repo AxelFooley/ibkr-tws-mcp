@@ -223,9 +223,7 @@ class AccountUpdate(BaseModel):
     """
 
     account: str = Field(..., description="Account ID")
-    values: list[AccountValueItem] = Field(
-        default_factory=list, description="Account value items"
-    )
+    values: list[AccountValueItem] = Field(default_factory=list, description="Account value items")
 
 
 class ExecutionInfo(BaseModel):

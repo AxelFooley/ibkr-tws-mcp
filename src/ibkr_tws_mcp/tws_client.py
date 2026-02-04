@@ -1001,8 +1001,7 @@ class TWSClientWrapper(EWrapper, EClient):
                 account = self._managed_accounts[0]
             else:
                 raise RuntimeError(
-                    "No account specified and no managed accounts available. "
-                    "Connect to TWS first."
+                    "No account specified and no managed accounts available. Connect to TWS first."
                 )
 
         # Clear the account updates queue
@@ -1022,15 +1021,11 @@ class TWSClientWrapper(EWrapper, EClient):
             while True:
                 remaining = deadline - time.time()
                 if remaining <= 0:
-                    logger.warning(
-                        f"Timeout waiting for account updates for {account}"
-                    )
+                    logger.warning(f"Timeout waiting for account updates for {account}")
                     break
 
                 try:
-                    item = self._account_updates_queue.get(
-                        timeout=min(remaining, 1.0)
-                    )
+                    item = self._account_updates_queue.get(timeout=min(remaining, 1.0))
 
                     if item is None:
                         # accountDownloadEnd received
@@ -1038,18 +1033,14 @@ class TWSClientWrapper(EWrapper, EClient):
 
                     # item is (key, value, currency, accountName)
                     key, val, currency, acct_name = item
-                    values.append(
-                        AccountValueItem(key=key, value=val, currency=currency)
-                    )
+                    values.append(AccountValueItem(key=key, value=val, currency=currency))
 
                 except Empty:
                     # Check for errors
                     try:
                         error = self._error_queue.get_nowait()
                         if error[1] not in (2104, 2106, 2158):  # Info messages
-                            raise RuntimeError(
-                                f"TWS Error {error[1]}: {error[2]}"
-                            )
+                            raise RuntimeError(f"TWS Error {error[1]}: {error[2]}")
                     except Empty:
                         pass
                     continue
